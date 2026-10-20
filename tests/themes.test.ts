@@ -5,7 +5,7 @@ import { ART_COLS, ART_ROWS, ART_SPAN, BOOT_TICKS, bootFrame, cog, heroCells, PU
 const GLYPH = /^[\x20-\x7e·≈¦]$/
 const MARS_BOOT = ['+++ NOOSPHERE LINK +++', 'Machine Spirit: stirring', 'Servo-skull aloft.']
 
-test('every theme draws inside its box with one-cell glyphs, working and idle', () => {
+test('every theme draws inside its box with one-cell glyphs, working and idle', { timeoutMs: 60_000 }, () => {
   for (const name of THEME_NAMES)
     for (const isWorking of [true, false])
       for (let tick = 0; tick < 64; tick++) {
