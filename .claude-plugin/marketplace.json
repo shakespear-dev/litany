@@ -1,0 +1,6 @@
+{
+  "name": "litany",
+  "description": "litany, an unofficial Warhammer 40,000 fan mod for Claude Code",
+  "owner": { "name": "Andrei Menshikh", "url": "https://github.com/shakespear-dev" },
+  "plugins": [{ "name": "litany", "source": "./" }]
+}

@@ -1,0 +1,11 @@
+name: Idea
+description: A new theme, voice, line, panel section or anything else.
+labels: ["idea"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: A few lines on what and why. A sketch or screenshot helps.
+    validations:
+      required: true

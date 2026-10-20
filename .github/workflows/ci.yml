@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  plugin:
+    name: validate and test (Claude Code ${{ matrix.claude }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # the version the mod is tested on, and whatever ships now
+        claude: ["2.1.304", "latest"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: latest
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@${{ matrix.claude }} && claude --version
+      - name: Validate
+        run: claude plugin validate .
+      - name: Test
+        run: claude plugin test .
+
+  scripts:
+    name: scripts and sounds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+      - name: shellcheck
+        run: shellcheck --severity=warning script/*.sh
+      - name: Sounds regenerate byte for byte
+        run: |
+          python3 -I script/make-sounds.py
+          git diff --exit-code -- sounds/

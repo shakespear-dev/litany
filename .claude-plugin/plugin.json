@@ -1,0 +1,60 @@
+{
+  "name": "litany",
+  "version": "0.2.0",
+  "description": "Unofficial Warhammer 40,000 fan skin for Claude Code, not affiliated with Games Workshop: themed spinner and turn line, Noosphere telemetry band and panel, Tech-Priest voice, warn-only heresy rites, synthesized sounds, spoken lore lines",
+  "author": {
+    "name": "Andrei Menshikh",
+    "url": "https://github.com/shakespear-dev"
+  },
+  "homepage": "https://github.com/shakespear-dev/litany",
+  "repository": "https://github.com/shakespear-dev/litany",
+  "license": "MIT",
+  "keywords": [
+    "mod",
+    "theme",
+    "panel",
+    "statusline",
+    "tts",
+    "warhammer-40k",
+    "fan-work"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "spinner": { "type": "boolean", "title": "Litany: spinner", "description": "Spinner phrases follow the active tool (Anointing the cogitator…)", "default": true
+    },
+    "turnline": { "type": "boolean", "title": "Litany: turn line", "description": "End-of-turn line reads 'Rite concluded in 3s'", "default": true
+    },
+    "hint": { "type": "boolean", "title": "Litany: prompt hint", "description": "A Universal Law, rotated each turn, at the end of the hint line", "default": true
+    },
+    "band": { "type": "boolean", "title": "Litany: Noosphere band", "description": "Telemetry line above the prompt: context, tool calls, branch, cost, 5h window, heresies", "default": true
+    },
+    "voice": { "type": "boolean", "title": "Litany: Tech-Priest voice", "description": "Short +++ opener and closer on chat replies; never in code, commits or drafts", "default": true
+    },
+    "rites": { "type": "boolean", "title": "Litany: heresy rites", "description": "Warn (never block) on rm -rf, force-push, reset --hard and similar; note tool failures", "default": true
+    },
+    "sound": { "type": "boolean", "title": "Litany: beeps", "description": "Clips on the seven events: long turns, heresies, tool failures, permission waits, API errors, servitors waiting, auto-compaction", "default": true
+    },
+    "panel": { "type": "boolean", "title": "Litany: NOOSPHERE panel", "description": "Side panel with animated ASCII art, gauges and logs; docks itself on windows 144+ columns wide", "default": true
+    },
+    "pulse": { "type": "boolean", "title": "Litany: panel pulse", "description": "The panel's braille graph of rites per minute", "default": true
+    },
+    "spirits": { "type": "boolean", "title": "Litany: panel Machine spirits", "description": "The panel's tally of rites per tool", "default": true
+    },
+    "roster": { "type": "boolean", "title": "Litany: panel Servitors", "description": "The panel's roster of running and just-finished subagents", "default": true
+    },
+    "sublog": { "type": "boolean", "title": "Litany: subagent rites", "description": "Subagents' tool calls in the panel's rite log, tagged with the agent type", "default": true
+    },
+    "split": { "type": "boolean", "title": "Litany: split pulse", "description": "The pulse mirrors main-agent rites above the line and subagent rites below it", "default": true
+    },
+    "theme": { "type": "string", "title": "Litany: theme", "description": "Panel art and colours, and the band's colours", "options": [   "mars",   "cogitator",   "forge",   "claude" ], "default": "mars"
+    },
+    "vox": { "type": "string", "title": "Litany: vox", "description": "A short spoken line after each event, in the theme's voice or one you pick", "options": [   "default",   "mars",   "cogitator",   "forge",   "claude",   "off" ], "default": "default"
+    },
+    "volumeMaster": { "type": "string", "title": "Litany: master volume", "description": "Scales the beeps and the vox together", "options": [   "0",   "1",   "2",   "3",   "4",   "5",   "6",   "7",   "8",   "9",   "10" ], "default": "10"
+    },
+    "volumeBeeps": { "type": "string", "title": "Litany: beeps volume", "description": "Scales the clips", "options": [   "0",   "1",   "2",   "3",   "4",   "5",   "6",   "7",   "8",   "9",   "10" ], "default": "10"
+    },
+    "volumeVox": { "type": "string", "title": "Litany: vox volume", "description": "Scales the spoken lines", "options": [   "0",   "1",   "2",   "3",   "4",   "5",   "6",   "7",   "8",   "9",   "10" ], "default": "10"
+    }
+  }
+}
