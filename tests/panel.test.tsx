@@ -387,6 +387,22 @@ test('with the terminal and the desktop both drawing the pane, frames are redraw
   await desktop.unmount()
 })
 
+test('a small pane drawn last does not stop the larger one animating', async ($, on) => {
+  const clock = mock.clock(on)
+  engine(on)
+  let redraws = 0
+  on('ui.invalidate', () => (redraws++, { value: undefined }))
+  await $.command.run(PANEL)
+  const desktop = await $.ui.mount({ plugin: 'litany', surface: 'desktop', ...sized(46, 48) })
+  // Too short for the hero, the pulse or the roster.
+  const mobile = await $.ui.mount({ plugin: 'litany', surface: 'mobile', ...sized(46, 6) })
+  redraws = 0
+  await clock.advance(3000)
+  expect(redraws).toBeGreaterThanOrEqual(3)
+  await mobile.unmount()
+  await desktop.unmount()
+})
+
 test('a module that starts with the pane left open reopens it when the desktop attaches', async ($, on) => {
   mock.clock(on)
   const calls = engine(on)

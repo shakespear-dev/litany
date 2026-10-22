@@ -326,7 +326,7 @@ async function refreshBranch($: EngineInterface) {
 }
 
 // The pulse at the drawn width: mirrored while `split` is on and a servitor rite is in view.
-async function pulseArt($: EngineInterface, options: Defaults, theme: Theme) {
+async function pulseArt($: EngineInterface, options: Defaults, theme: Theme, inner: number) {
   const all = await read($, pulse)
   const now = Math.max(all.last, nowMinute)
   if (await enabled($, options, 'split')) {
@@ -345,41 +345,40 @@ let isDrawn = false
 let isWorking = false
 // Set from the surface's viewport while it draws: a pane opened unasked is a sidebar only where this is true.
 let isDockable = false
-// Whether a surface with no Raster (desktop, VS Code, a phone) has drawn the open pane: its Svg takes no blits, so every frame is a redraw, the terminal's alongside it. ponytail: kept until the pane closes, a detached surface included.
-let isSvgPane = false
 // The newest minute this module has seen: a tool call or the timer's minute tick. The pulse scrolls to it.
 let nowMinute = 0
-// What the last drawing laid out: the timer blits only rasters the pane shows, at the width it drew them.
-let inner = 0
-let isHeroShown = false
-let isPulseShown = false
-let isRosterShown = false
-// Whether the last pulse drawn was mirrored: when the servitors' minutes scroll out, the head note must follow.
-let isPulseSplit = false
+// What each surface's last drawing of the open pane laid out. The timer animates what any of them shows, and blits only the terminal's rasters, at the width it drew them.
+// isPulseSplit: whether that pulse was mirrored; when the servitors' minutes scroll out, the head note must follow.
+// ponytail: kept until the pane closes, a detached surface's included; it costs a redraw now and then.
+type Shown = { inner: number; isHero: boolean; isPulse: boolean; isRoster: boolean; isPulseSplit: boolean }
+const shown = new Map<string, Shown>()
 
 // ponytail: the timer runs while the pane is open; an unseated or idle tick returns before any $ call.
 async function tickPanel($: EngineInterface, options: Defaults) {
   tick++
   const sinceOpen = tick - openedAt
+  const all = [...shown.values()]
   // A minute is 240 frames at 250 ms; the pulse scrolls on it.
-  const isMinute = isPulseShown && tick % 240 === 0
-  const isHeroFrame = isHeroShown && (isWorking || sinceOpen < BOOT_TICKS || tick % 4 === 0)
+  const isMinute = all.some(s => s.isPulse) && tick % 240 === 0
+  const isHeroFrame = all.some(s => s.isHero) && (isWorking || sinceOpen < BOOT_TICKS || tick % 4 === 0)
   // The roster's times move once a second, and a finished row leaves on time.
-  const isRosterTick = isRosterShown && tick % 4 === 0
+  const isRosterTick = all.some(s => s.isRoster) && tick % 4 === 0
   if (!isDrawn || (!isHeroFrame && !isMinute && !isRosterTick)) return
   if (isMinute) nowMinute = Math.max(nowMinute, minuteOf(await $.clock.now().catch(() => 0)))
-  // An Svg cannot be blitted, so every frame redraws the whole pane (4 a second at most, under a remote surface's 10); the terminal's redraw shows the same frame.
+  // A surface with no Raster (desktop, VS Code, a phone) draws an Svg, which takes no blits: every frame redraws the whole pane (4 a second at most, under a remote surface's 10), the terminal's alongside it.
+  const isSvgPane = [...shown.keys()].some(surface => surface !== 'terminal')
   if (isRosterTick || isSvgPane) $.ui.invalidate('ui.render')
-  if (isSvgPane) return
+  const term = shown.get('terminal')
+  if (isSvgPane || !term) return
   const theme = await currentTheme($, options)
-  if (isHeroFrame) {
-    const r = await $.ui.blit({ requestId: PANE, key: 'art', cells: heroCells(theme, inner, tick, isWorking, sinceOpen) })
+  if (isHeroFrame && term.isHero) {
+    const r = await $.ui.blit({ requestId: PANE, key: 'art', cells: heroCells(theme, term.inner, tick, isWorking, sinceOpen) })
     if (r.deny !== undefined) return void (isDrawn = false)
   }
-  if (isMinute) {
-    const art = await pulseArt($, options, theme)
+  if (isMinute && term.isPulse) {
+    const art = await pulseArt($, options, theme, term.inner)
     // The graph changed kind: redraw the pane so the head note matches.
-    if (art.isSplit !== isPulseSplit) return void $.ui.invalidate('ui.render')
+    if (art.isSplit !== term.isPulseSplit) return void $.ui.invalidate('ui.render')
     const r = await $.ui.blit({ requestId: PANE, key: 'pulse', cells: art.cells })
     if (r.deny !== undefined) isDrawn = false
   }
@@ -398,7 +397,7 @@ function stopPanel() {
   timer?.cancel()
   timer = null
   isDrawn = false
-  isSvgPane = false
+  shown.clear()
 }
 
 async function closePanel($: EngineInterface) {
@@ -638,13 +637,11 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (!(await enabled($, options, 'panel'))) return next(e)
     isDrawn = true
-    if (e.surface !== 'terminal') isSvgPane = true
     const theme = await currentTheme($, options)
     const cols = e.props.bodyColumns
     const rows = e.props.scroll.bodyRows
-    inner = Math.max(1, cols - 2)
-    const art = await pulseArt($, options, theme)
-    isPulseSplit = art.isSplit
+    const inner = Math.max(1, cols - 2)
+    const art = await pulseArt($, options, theme, inner)
     const layout = slate(
       {
         telemetry: await read($, telemetry),
@@ -666,9 +663,13 @@ export const register: Register = (on, options) => {
       cols,
       rows,
     )
-    isHeroShown = layout.some(r => r.kind === 'art')
-    isPulseShown = layout.some(r => r.kind === 'pulse')
-    isRosterShown = layout.some(r => r.kind === 'text' && r.segs[0]?.text === ROSTER_HEAD)
+    shown.set(e.surface, {
+      inner,
+      isHero: layout.some(r => r.kind === 'art'),
+      isPulse: layout.some(r => r.kind === 'pulse'),
+      isRoster: layout.some(r => r.kind === 'text' && r.segs[0]?.text === ROSTER_HEAD),
+      isPulseSplit: art.isSplit,
+    })
     if (e.surface !== 'terminal') {
       // The same rows as the terminal's, as one terminal-looking Svg.
       const lines = layout.flatMap(r =>
