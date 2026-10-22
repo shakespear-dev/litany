@@ -260,8 +260,12 @@ export const THEMES: Record<ThemeName, Theme> = {
 export const themeFor = (name: ThemeName) => THEMES[name]
 
 // Surfaces with no Raster (desktop, VS Code, mobile) get the pane as one Svg: the same cells on a terminal's dark ground.
-export const CELL_W = 10
-export const CELL_H = 20
+// Such a surface counts the pane's cells in its code font, then draws the Svg scaled to the pane's width, its height following.
+// So a cell has the desktop's code-font shape, 2.4 high to 1 wide, and is drawn twice the size of any surface's own: the Svg is only ever scaled down, to the pane's width, its height following.
+// ponytail: the shape is read off one desktop screenshot (2.17 left a strip of 11%; 2.5 scrolled). A taller cell than the surface's scrolls the pane, a shorter one leaves a strip below: tune CELL_H.
+export const CELL_W = 24
+export const CELL_H = 57
+const FONT_PX = 40
 const TERM_BG = '#141414'
 const TERM_FG = '#d4d4d4'
 // The claude theme's named colours as Claude Code's dark theme paints them. ponytail: fixed dark values, as the ground is always dark.
@@ -353,7 +357,7 @@ export function paneSvg(lines: readonly (readonly Run[])[], cols: number, rows: 
   const inner = Math.max(1, cols - 2)
   const w = cols * CELL_W
   const h = rows * CELL_H
-  const head = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="16"><rect width="100%" height="100%" fill="${TERM_BG}"/>`
+  const head = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="${FONT_PX}"><rect width="100%" height="100%" fill="${TERM_BG}"/>`
   const tail = '</svg>'
   let size = head.length + tail.length
   const texts: string[] = []
@@ -364,7 +368,7 @@ export function paneSvg(lines: readonly (readonly Run[])[], cols: number, rows: 
       for (const word of words(run, inner)) {
         // One narrow glyph needs no stretching: its x already pins it to its cell.
         const fit = word.span > 1 ? ` textLength="${word.span * CELL_W}" lengthAdjust="spacingAndGlyphs"` : ''
-        const text = `<text x="${(word.col + 1) * CELL_W}" y="${r * CELL_H + 15}"${fit} fill="${run.fg}"${bold}>${esc(word.text)}</text>`
+        const text = `<text x="${(word.col + 1) * CELL_W}" y="${r * CELL_H + (CELL_H + FONT_PX) / 2 + 1}"${fit} fill="${run.fg}"${bold}>${esc(word.text)}</text>`
         if (size + text.length > SVG_MAX) break rows
         size += text.length
         texts.push(text)

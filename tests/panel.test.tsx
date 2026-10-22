@@ -328,7 +328,7 @@ test('off the terminal the pane is one Svg of the same rows, animated by redraws
   for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ plugin: 'litany', surface, ...sized(46, 48) })
     const svg = await ui.find({ type: 'Svg' })
-    expect(svg?.props.source).toMatch(/^<svg [^>]*width="460" height="960"/)
+    expect(svg?.props.source).toMatch(/^<svg [^>]*width="1104" height="2736"/)
     expect(svg?.props.source).toContain('>LAW</text>')
     expect(svg?.props.source).toContain('>DORMANT</text>')
     await ui.unmount()

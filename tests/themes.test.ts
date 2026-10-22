@@ -180,8 +180,8 @@ test('wide characters take two cells in the Svg pane, as in the terminal', () =>
   const wide = String.fromCharCode(0x4f60, 0x597d) // two CJK ideographs
   const svg = paneSvg([[{ col: 0, text: `${wide} x`, fg }]], 12, 1)
   // The pair spans four cells from the padding cell; x sits after them and one blank.
-  expect(svg).toContain(`<text x="10" y="15" textLength="40" lengthAdjust="spacingAndGlyphs" fill="${fg}">${wide}</text>`)
-  expect(svg).toContain('<text x="60" y="15" fill="#d4d4d4">x</text>')
+  expect(svg).toContain(`<text x="24" y="49.5" textLength="96" lengthAdjust="spacingAndGlyphs" fill="${fg}">${wide}</text>`)
+  expect(svg).toContain('<text x="144" y="49.5" fill="#d4d4d4">x</text>')
   // A wide character that would cross the far padding is left out whole.
   expect(paneSvg([[{ col: 0, text: `abcdefghi${wide}`, fg }]], 12, 1)).not.toContain(wide.charAt(0))
   // The next segment starts after the wide pair's four cells.
