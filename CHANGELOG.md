@@ -6,8 +6,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Added
 
-- The desktop app on macOS and Windows: the NOOSPHERE panel draws there as the same terminal-style grid, scaled to fill the pane, and the band and voice work too.
-- Sound and vox on Windows, through PowerShell.
+- The desktop app, tried on macOS and untested on Windows: the NOOSPHERE panel draws there as the same terminal-style grid, scaled to fill the pane, and the band and voice work too.
+- Sound and vox on Windows, through PowerShell. Untested on Windows.
 
 ### Fixed
 
