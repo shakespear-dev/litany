@@ -4,6 +4,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-22
+
 ### Added
 
 - The desktop app, tried on macOS and untested on Windows: the NOOSPHERE panel draws there as the same terminal-style grid, scaled to fill the pane, and the band and voice work too.
@@ -28,5 +30,6 @@ First public release.
 - Four themes: `mars`, `cogitator`, `forge`, `claude`.
 - `/litany` to toggle any part, switch theme or voice, set volumes, open the panel, or `say` any text.
 
-[Unreleased]: https://github.com/shakespear-dev/litany/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/shakespear-dev/litany/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/shakespear-dev/litany/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/shakespear-dev/litany/releases/tag/v0.2.0
