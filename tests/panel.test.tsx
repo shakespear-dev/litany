@@ -318,3 +318,71 @@ test('when the servitor minutes scroll out, the open pane goes back to one graph
   expect(await ui.find({ type: 'Text', text: / main ▲ {2}servitors ▼$/ })).toBeUndefined()
   await ui.unmount()
 })
+
+test('off the terminal the pane is one Svg of the same rows, animated by redraws instead of blits', async ($, on) => {
+  const clock = mock.clock(on)
+  const calls = engine(on)
+  let redraws = 0
+  on('ui.invalidate', () => (redraws++, { value: undefined }))
+  await $.command.run(PANEL)
+  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
+    const ui = await $.ui.mount({ plugin: 'litany', surface, ...sized(46, 48) })
+    const svg = await ui.find({ type: 'Svg' })
+    expect(svg?.props.source).toMatch(/^<svg [^>]*width="460" height="960"/)
+    expect(svg?.props.source).toContain('>LAW</text>')
+    expect(svg?.props.source).toContain('>DORMANT</text>')
+    await ui.unmount()
+  }
+  const ui = await $.ui.mount({ plugin: 'litany', surface: 'desktop', ...sized(46, 48) })
+  redraws = 0
+  await clock.advance(3000)
+  expect(calls.blits).toBe(0)
+  expect(redraws).toBeGreaterThanOrEqual(3)
+  await ui.unmount()
+})
+
+test('a pane left open opens again when the desktop attaches', async ($, on) => {
+  mock.clock(on)
+  const calls = engine(on)
+  on('session.attach', (_$, e) => ({ clientId: e.clientId }))
+  await $.command.run(PANEL)
+  await $.command.run({ ...PANEL, args: 'panel off' })
+  await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
+  expect(calls.opens).toBe(1)
+  await $.command.run({ ...PANEL, args: 'panel on' })
+  const opens = calls.opens
+  await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
+  expect(calls.opens).toBe(opens) // already open with its timer running
+})
+
+test('a reload in a desktop session reopens the pane; a -p run with no surface does not', async ($, on) => {
+  mock.clock(on)
+  const calls = engine(on)
+  sessionBottoms(on)
+  let surfaces: readonly ('desktop' | 'terminal')[] = []
+  on('session.surfaces', () => ({ value: surfaces }))
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  await $.command.run(PANEL)
+  expect(calls.opens).toBe(1)
+  await $.session.start({ cwd: '/x', surface: null, isInteractive: false })
+  expect(calls.opens).toBe(1)
+  surfaces = ['desktop']
+  await $.session.start({ cwd: '/x', surface: null, isInteractive: false })
+  expect(calls.opens).toBe(2)
+})
+
+test('with the terminal and the desktop both drawing the pane, frames are redraws whichever drew last', async ($, on) => {
+  const clock = mock.clock(on)
+  const calls = engine(on)
+  let redraws = 0
+  on('ui.invalidate', () => (redraws++, { value: undefined }))
+  await $.command.run(PANEL)
+  const desktop = await $.ui.mount({ plugin: 'litany', surface: 'desktop', ...sized(46, 48) })
+  const terminal = await $.ui.mount({ plugin: 'litany', surface: 'terminal', ...sized(46, 48) })
+  redraws = 0
+  await clock.advance(3000)
+  expect(calls.blits).toBe(0)
+  expect(redraws).toBeGreaterThanOrEqual(3)
+  await terminal.unmount()
+  await desktop.unmount()
+})

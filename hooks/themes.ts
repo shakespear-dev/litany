@@ -258,3 +258,91 @@ export const THEMES: Record<ThemeName, Theme> = {
 }
 
 export const themeFor = (name: ThemeName) => THEMES[name]
+
+// Surfaces with no Raster (desktop, VS Code, mobile) get the pane as one Svg: the same cells on a terminal's dark ground.
+export const CELL_W = 10
+export const CELL_H = 20
+const TERM_BG = '#141414'
+const TERM_FG = '#d4d4d4'
+// The claude theme's named colours as Claude Code's dark theme paints them. ponytail: fixed dark values, as the ground is always dark.
+const NAMED: Readonly<Record<string, string>> = { claude: '#d77757', success: '#4eba65', warning: '#ffc107', error: '#ff6b80', inactive: '#999999' }
+
+// One stretch of a row in one colour, starting at `col`.
+export type Run = { col: number; text: string; fg: string; bold?: boolean }
+
+const hex = (rgb: number) => (rgb === DEFAULT ? TERM_FG : `#${rgb.toString(16).padStart(6, '0')}`)
+
+export function toneHex(theme: Theme, tone: TextTone) {
+  const c = theme.text[tone]
+  return c === undefined ? TERM_FG : c.startsWith('#') ? c : (NAMED[c] ?? TERM_FG)
+}
+
+// A Raster's packed cells as runs, row by row. A blank joins the run it sits in, so the rain's gaps cost nothing. ponytail: backgrounds are dropped; this mod paints none.
+export function cellRuns(cells: string, cols: number, rows: number): Run[][] {
+  const w = new Uint32Array(Uint8Array.fromBase64(cells).buffer)
+  return Array.from({ length: rows }, (_, r) => {
+    const runs: Run[] = []
+    let run: Run | undefined
+    for (let c = 0; c < cols; c++) {
+      const i = (r * cols + c) * 3
+      const ch = String.fromCharCode(w[i] ?? 32)
+      const fg = hex(w[i + 1] ?? DEFAULT)
+      if (ch === ' ') {
+        if (run) run.text += ch
+        continue
+      }
+      if (run?.fg !== fg) {
+        run = { col: c, text: '', fg }
+        runs.push(run)
+      }
+      run.text += ch
+    }
+    return runs
+  })
+}
+
+// A text row's segments as runs, side by side from column 0.
+export function segRuns(theme: Theme, segs: readonly { text: string; tone: TextTone; bold?: boolean }[]): Run[] {
+  let col = 0
+  return segs.map(s => {
+    const run: Run = { col, text: s.text, fg: toneHex(theme, s.tone), ...(s.bold ? { bold: true } : {}) }
+    col += s.text.length
+    return run
+  })
+}
+
+// What XML forbids would make the whole SVG invalid: control characters, U+FFFE and U+FFFF, and a surrogate a cut left alone (a Bash command's emoji at the pane's edge).
+const esc = (s: string) =>
+  s
+    .replace(/[\x00-\x1f\x7f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, ' ')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+// An Svg's source is refused past 131072 characters, and the engine then closes the pane.
+const SVG_MAX = 131_072
+
+// The pane at `cols × rows` cells: each row's runs one cell in (the terminal's paddingX), cut at the far padding. Every word is placed at its own cell and stretched to its cells, so neither a renderer's whitespace rules nor a fallback font moves the grid. Columns count UTF-16 units, as the terminal's rows do: an emoji's two are its two cells.
+export function paneSvg(lines: readonly (readonly Run[])[], cols: number, rows: number): string {
+  const inner = Math.max(1, cols - 2)
+  const w = cols * CELL_W
+  const h = rows * CELL_H
+  const head = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="16"><rect width="100%" height="100%" fill="${TERM_BG}"/>`
+  const tail = '</svg>'
+  let size = head.length + tail.length
+  const texts: string[] = []
+  // ponytail: past the budget the lowest rows go undrawn; only a pane far wider and taller than a desktop's reaches it.
+  rows: for (const [r, runs] of lines.slice(0, rows).entries())
+    for (const run of runs) {
+      const bold = run.bold ? ' font-weight="bold"' : ''
+      for (const m of run.text.slice(0, Math.max(0, inner - run.col)).matchAll(/\S+/g)) {
+        // One glyph needs no stretching: its x already pins it to its cell.
+        const fit = m[0].length > 1 ? ` textLength="${m[0].length * CELL_W}" lengthAdjust="spacingAndGlyphs"` : ''
+        const text = `<text x="${(run.col + m.index + 1) * CELL_W}" y="${r * CELL_H + 15}"${fit} fill="${run.fg}"${bold}>${esc(m[0])}</text>`
+        if (size + text.length > SVG_MAX) break rows
+        size += text.length
+        texts.push(text)
+      }
+    }
+  return head + texts.join('') + tail
+}

@@ -4,6 +4,15 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+
+- The desktop app on macOS and Windows: the NOOSPHERE panel draws there as the same terminal-style grid, and the band and voice work too.
+- Sound and vox on Windows, through PowerShell.
+
+### Fixed
+
+- File names in the panel's rite log and the forge name on Windows paths.
+
 ## [0.2.0] - 2026-10-20
 
 First public release.

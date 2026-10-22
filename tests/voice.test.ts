@@ -27,6 +27,14 @@ test('voice stays out of headless and SDK prompts', async ($, on) => {
   expect((await $.prompt.compose({ ...COMPOSE, traits: ['sdk-preset'] })).sections).toEqual([])
 })
 
+test('the desktop app gets the voice although it hosts through the SDK; a teammate or --bare never does', async ($, on) => {
+  on('prompt.compose', () => ({ sections: [] }))
+  const desktop = { ...COMPOSE, surfaces: ['desktop'], traits: ['print', 'sdk-preset'] } as const
+  expect((await $.prompt.compose(desktop)).sections.map(s => s.id)).toEqual(['litany-voice'])
+  expect((await $.prompt.compose({ ...desktop, traits: ['teammate'] })).sections).toEqual([])
+  expect((await $.prompt.compose({ ...desktop, traits: ['bare'] })).sections).toEqual([])
+})
+
 test('ignitionText names the forge and branch when known', () => {
   expect(ignitionText('my-projects', 'main')).toBe(
     '+++ Litany of Ignition +++ Cogitator awakened. Forge: my-projects @ main. The Omnissiah protects.',
