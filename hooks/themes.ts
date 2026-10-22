@@ -301,20 +301,46 @@ export function cellRuns(cells: string, cols: number, rows: number): Run[][] {
   })
 }
 
+// East Asian wide and fullwidth BMP characters take two terminal cells, as a surrogate pair's two units do (an emoji); every other character one. ponytail: the common wide blocks, not the full Unicode width table.
+const WIDE = /[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꀀ-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/
+const cellsOf = (ch: string) => (WIDE.test(ch) ? 2 : ch.length)
+const widthOf = (s: string) => [...s].reduce((n, ch) => n + cellsOf(ch), 0)
+
 // A text row's segments as runs, side by side from column 0.
 export function segRuns(theme: Theme, segs: readonly { text: string; tone: TextTone; bold?: boolean }[]): Run[] {
   let col = 0
   return segs.map(s => {
     const run: Run = { col, text: s.text, fg: toneHex(theme, s.tone), ...(s.bold ? { bold: true } : {}) }
-    col += s.text.length
+    col += widthOf(s.text)
     return run
   })
 }
 
-// What XML forbids would make the whole SVG invalid: control characters, U+FFFE and U+FFFF, and a surrogate a cut left alone (a Bash command's emoji at the pane's edge).
+// A run's words, each at the cell it starts in and the cells it spans, cut where the next character would cross `inner`. Characters are walked whole, so a cut never splits a pair; one XML forbids is a blank.
+function words(run: Run, inner: number) {
+  const out: { col: number; text: string; span: number }[] = []
+  let col = run.col
+  for (const ch of run.text.replace(XML_BAD, ' ')) {
+    const w = cellsOf(ch)
+    if (col + w > inner) break
+    const last = out.at(-1)
+    if (/\s/.test(ch)) {
+      // A blank only advances the column.
+    } else if (last && last.col + last.span === col) {
+      last.text += ch
+      last.span += w
+    } else out.push({ col, text: ch, span: w })
+    col += w
+  }
+  return out
+}
+
+// What XML forbids would make the whole SVG invalid: control characters, U+FFFE and U+FFFF, and a surrogate left alone (a Bash command's broken emoji).
+// The two noncharacters by code: as literals they are invisible, and some tools rewrite \u escapes into literals.
+const XML_BAD = new RegExp(`[\\x00-\\x1f\\x7f${String.fromCharCode(0xfffe, 0xffff)}]|[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?<![\\ud800-\\udbff])[\\udc00-\\udfff]`, 'g')
 const esc = (s: string) =>
   s
-    .replace(/[\x00-\x1f\x7f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, ' ')
+    .replace(XML_BAD, ' ')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -322,7 +348,7 @@ const esc = (s: string) =>
 // An Svg's source is refused past 131072 characters, and the engine then closes the pane.
 const SVG_MAX = 131_072
 
-// The pane at `cols × rows` cells: each row's runs one cell in (the terminal's paddingX), cut at the far padding. Every word is placed at its own cell and stretched to its cells, so neither a renderer's whitespace rules nor a fallback font moves the grid. Columns count UTF-16 units, as the terminal's rows do: an emoji's two are its two cells.
+// The pane at `cols × rows` cells: each row's runs one cell in (the terminal's paddingX), cut at the far padding. Every word is placed at its own cell and stretched to its cells, so neither a renderer's whitespace rules nor a fallback font moves the grid. Columns count terminal cells: two for a wide character or an emoji.
 export function paneSvg(lines: readonly (readonly Run[])[], cols: number, rows: number): string {
   const inner = Math.max(1, cols - 2)
   const w = cols * CELL_W
@@ -335,10 +361,10 @@ export function paneSvg(lines: readonly (readonly Run[])[], cols: number, rows: 
   rows: for (const [r, runs] of lines.slice(0, rows).entries())
     for (const run of runs) {
       const bold = run.bold ? ' font-weight="bold"' : ''
-      for (const m of run.text.slice(0, Math.max(0, inner - run.col)).matchAll(/\S+/g)) {
-        // One glyph needs no stretching: its x already pins it to its cell.
-        const fit = m[0].length > 1 ? ` textLength="${m[0].length * CELL_W}" lengthAdjust="spacingAndGlyphs"` : ''
-        const text = `<text x="${(run.col + m.index + 1) * CELL_W}" y="${r * CELL_H + 15}"${fit} fill="${run.fg}"${bold}>${esc(m[0])}</text>`
+      for (const word of words(run, inner)) {
+        // One narrow glyph needs no stretching: its x already pins it to its cell.
+        const fit = word.span > 1 ? ` textLength="${word.span * CELL_W}" lengthAdjust="spacingAndGlyphs"` : ''
+        const text = `<text x="${(word.col + 1) * CELL_W}" y="${r * CELL_H + 15}"${fit} fill="${run.fg}"${bold}>${esc(word.text)}</text>`
         if (size + text.length > SVG_MAX) break rows
         size += text.length
         texts.push(text)

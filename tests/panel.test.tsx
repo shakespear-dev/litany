@@ -386,3 +386,13 @@ test('with the terminal and the desktop both drawing the pane, frames are redraw
   await terminal.unmount()
   await desktop.unmount()
 })
+
+test('a module that starts with the pane left open reopens it when the desktop attaches', async ($, on) => {
+  mock.clock(on)
+  const calls = engine(on)
+  // What a reload leaves: panelOpen kept in $.state, the module's timer gone.
+  on('state.get', { plugin: 'litany', key: 'panelOpen' }, () => ({ value: { value: true, version: 0 } }))
+  on('session.attach', (_$, e) => ({ clientId: e.clientId }))
+  await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
+  expect(calls.opens).toBe(1)
+})

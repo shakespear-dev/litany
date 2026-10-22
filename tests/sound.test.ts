@@ -135,12 +135,12 @@ test("auto-compaction of the main loop plays engrams; manual or a subagent's pla
   expect(clips).toEqual(['sounds/engrams.wav'])
 })
 
-test('on Windows the clip goes to PowerShell on stdin, never uname or the engine', VOX_OFF, async ($, on) => {
+test('on Windows the clip goes to the system PowerShell on stdin, never uname or the engine', VOX_OFF, async ($, on) => {
   const clock = mock.clock(on)
   const runs: { argv: readonly string[]; stdin?: string }[] = []
   const clips: string[] = []
   on('audio.play', (_$, e) => (e.clip.asset && clips.push(e.clip.asset), { value: undefined }))
-  on('env.get', (_$, e) => ({ value: e.name === 'OS' ? 'Windows_NT' : undefined }))
+  on('env.get', (_$, e) => ({ value: e.name === 'OS' ? 'Windows_NT' : e.name === 'SystemRoot' ? 'D:\\WINDOWS' : undefined }))
   on('fs.read', () => ({ value: { base64: toWav(new Float32Array(2205).fill(0.5)).toBase64() } }))
   on('process.run', (_$, e) => (runs.push({ argv: e.argv, stdin: e.init?.stdin }), ran(0)))
   on('turn.complete', () => ({ text: '' }))
@@ -149,7 +149,8 @@ test('on Windows the clip goes to PowerShell on stdin, never uname or the engine
   await clock.settle()
 
   expect(clips).toEqual([])
-  expect(runs.map(r => r.argv[0])).toEqual(['powershell'])
+  // By full path: a powershell.exe planted in the project never runs.
+  expect(runs.map(r => r.argv[0])).toEqual(['D:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'])
   expect(runs[0]!.argv.at(-1)).toContain('SoundPlayer')
   // The clip's own bytes: a RIFF header.
   expect(new TextDecoder().decode(Uint8Array.fromBase64(runs[0]!.stdin!).subarray(0, 4))).toBe('RIFF')

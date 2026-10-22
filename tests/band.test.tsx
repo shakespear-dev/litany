@@ -67,6 +67,14 @@ test('band shows real measurements and steps aside when switched off', async ($,
   await ui.unmount()
 })
 
+test('the band draws in the desktop app too', async ($, on) => {
+  on('session.measure', () => ({ changed: [] }))
+  await $.session.measure({ context: { window: 200_000, tokens: 84_000, percent: 42 }, rateLimits: [], cost: { usd: 1.84 }, changed: [] })
+  const ui = await $.ui.mount({ plugin: 'litany', surface: 'desktop', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /cogitator 42%/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a long turn refreshes the band after each tool call, before the turn ends and the engine measures', async ($, on) => {
   let usage = { startedAt: 0, context: { window: 1_000_000 }, rateLimits: [], cost: { usd: 0 } } as SessionUsage
   on('session.usage', () => ({ value: usage }))

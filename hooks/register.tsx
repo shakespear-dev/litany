@@ -64,8 +64,14 @@ async function player($: EngineInterface): Promise<'engine' | 'windows' | readon
 // Windows: the WAV's bytes reach PowerShell's SoundPlayer on stdin, so no file is written. ponytail: PowerShell starts in a few hundred ms, so a clip lags that much.
 const PLAY_STDIN = '[System.Media.SoundPlayer]::new([IO.MemoryStream]::new([Convert]::FromBase64String([Console]::In.ReadToEnd()))).PlaySync()'
 
+// By its full path: Windows looks for a bare name in the working directory first, the project's, where a planted powershell.exe would run.
+async function powershell($: EngineInterface) {
+  const root = await $.env.get('SystemRoot').catch(() => undefined)
+  return `${root !== undefined && /^[A-Za-z]:\\[^"<>|?*]*$/.test(root) ? root.replace(/\\+$/, '') : 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+}
+
 async function playWindows($: EngineInterface, wav: Uint8Array, timeoutMs = 10_000) {
-  await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', PLAY_STDIN], { stdin: wav.toBase64(), timeoutMs }).catch(() => {})
+  await $.process.run([await powershell($), '-NoProfile', '-NonInteractive', '-Command', PLAY_STDIN], { stdin: wav.toBase64(), timeoutMs }).catch(() => {})
 }
 
 // A player that fails sooner than this never started playing; one that ran longer was playing when it ended.
