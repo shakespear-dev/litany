@@ -9,7 +9,7 @@ Machine-cult spinner phrases, a telemetry band and side panel, warn-only "heresy
 [![ci](https://github.com/shakespear-dev/litany/actions/workflows/ci.yml/badge.svg)](https://github.com/shakespear-dev/litany/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-b7410e)](LICENSE)
 [![Claude Code mod](https://img.shields.io/badge/Claude_Code-mod-cd7f32)](https://claude.com/claude-code)
-![macOS | Linux](https://img.shields.io/badge/macOS_%7C_Linux-555)
+![macOS | Linux | Windows (untested)](https://img.shields.io/badge/macOS_%7C_Linux_%7C_Windows_(untested)-555)
 
 <img src="assets/hero.gif" alt="litany in a Claude Code session: the NOOSPHERE panel docked on the right, the band above the prompt, a heresy warning on rm -rf and a subagent in the servitor roster" width="900">
 
@@ -34,7 +34,7 @@ Everything is on by default. Run `/litany` to see what's running.
 | **Spinner**   | Phrases follow the active tool: *Anointing the cogitator* for Bash, *Sifting the Librarium data-stacks* for Read and Grep.                                                                                                                  |
 | **Turn line** | *Rite concluded in 3s* instead of *Baked for 3s*.                                                                                                                                                                                           |
 | **Band**      | The Noosphere line above the prompt: context, tool calls, branch, cost, 5-hour window, heresies.                                                                                                                                            |
-| **Panel**     | The NOOSPHERE side panel: animated art in falling binharic, gauges, a braille pulse of tool calls per minute, a per-tool tally, a roster of running subagents and the latest tool calls. It docks by itself in terminals 144+ columns wide. |
+| **Panel**     | The NOOSPHERE side panel: animated art in falling binharic, gauges, a braille pulse of tool calls per minute, a per-tool tally, a roster of running subagents and the latest tool calls. It docks by itself in terminals 144+ columns wide and in the desktop app. |
 | **Voice**     | A short `+++ … +++` opener and closer on chat replies. Never in code, commits, tool inputs or text you'll send to someone else.                                                                                                             |
 | **Rites**     | Warns, never blocks, on `rm -rf`, force-push, `reset --hard`, `curl \| sh`, `DROP TABLE` and friends.                                                                                                                                       |
 | **Sound**     | Seven synthesized clips: long turn done, heresy, tool failure, permission waiting, API error, subagent waiting, auto-compaction.                                                                                                            |
@@ -66,8 +66,9 @@ Session commands last until the session ends. For lasting settings, every part h
 
 ## Requirements
 
-- Claude Code with mods.
+- Claude Code with mods, in a terminal or the desktop app.
 - **macOS:** nothing else.
+- **Windows (untested):** nothing else; sound should play through the built-in PowerShell. Nobody has tried it on Windows yet.
 - **Linux:** one of `pw-play`, `paplay`, `aplay` or `ffplay` for sound, plus `sh` and `base64`. With no player, or over SSH, it stays silent and everything else still works.
 
 ## Contributing

@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ART_COLS, ART_ROWS, ART_SPAN, BOOT_TICKS, bootFrame, cog, heroCells, PULSE_ROWS, pulseCells, servoSkull, techPriest, THEME_NAMES, themeFor } from '../hooks/themes'
+import { basename } from '../hooks/lore'
+import { ART_COLS, ART_ROWS, ART_SPAN, BOOT_TICKS, bootFrame, cog, heroCells, paneSvg, PULSE_ROWS, pulseCells, segRuns, servoSkull, techPriest, THEME_NAMES, themeFor } from '../hooks/themes'
 
 const GLYPH = /^[\x20-\x7e·≈¦]$/
 const MARS_BOOT = ['+++ NOOSPHERE LINK +++', 'Machine Spirit: stirring', 'Servo-skull aloft.']
@@ -141,4 +142,49 @@ test('the mirrored pulse: main rites rise in the top row, servitors hang in the 
   expect([w[0], w[3]]).toEqual([0x28e7, 0x28b9]) // top: left full, right half; bottom: left one dot, right full
   expect([w[1], w[4]]).toEqual([theme.art.a, theme.servitor])
   for (const name of THEME_NAMES) expect(typeof themeFor(name).servitor).toBe('number')
+})
+
+test('the Svg pane escapes untrusted text and never leaves half an emoji at the cut', () => {
+  const fg = '#d4d4d4'
+  // 'echo <a>&' is 9 units; the emoji's pair sits at 9-10, and a 12-column pane cuts after its first half.
+  const svg = paneSvg([[{ col: 0, text: 'echo <a>&\u{1F389}', fg }]], 12, 1)
+  expect(svg).toContain('&lt;a&gt;&amp;')
+  expect(svg).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/)
+  expect(svg).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1f]/)
+  // XML's two noncharacters, built by code so no tool can rewrite them: each becomes a blank.
+  const nonchars = String.fromCharCode(0xfffe) + 'x' + String.fromCharCode(0xffff)
+  const clean = paneSvg([[{ col: 0, text: nonchars, fg }]], 12, 1)
+  expect(clean.includes(String.fromCharCode(0xfffe)) || clean.includes(String.fromCharCode(0xffff))).toBe(false)
+  expect(clean).toContain('>x</text>')
+  // A whole emoji inside the pane stays.
+  expect(paneSvg([[{ col: 0, text: 'a \u{1F389} b', fg }]], 12, 1)).toContain('\u{1F389}')
+})
+
+test('the Svg pane stays under the Svg source cap however big the pane', () => {
+  const row = Array.from({ length: 200 }, (_, c) => ({ col: c * 2, text: 'x', fg: '#d4d4d4' }))
+  const svg = paneSvg(Array.from({ length: 256 }, () => row), 402, 256)
+  expect(svg.length).toBeLessThanOrEqual(131_072)
+  expect(svg.endsWith('</svg>')).toBe(true)
+})
+
+test('a backslash separates only in a Windows path', () => {
+  expect(basename('C:\\Users\\me\\repo\\a.md')).toBe('a.md')
+  expect(basename('\\\\server\\share\\a.md')).toBe('a.md')
+  expect(basename('C:/Users/me/a.md')).toBe('a.md')
+  expect(basename('/home/me/a\\b.md')).toBe('a\\b.md')
+  expect(basename('C:/Users/me\\a.md')).toBe('a.md')
+})
+
+test('wide characters take two cells in the Svg pane, as in the terminal', () => {
+  const fg = '#d4d4d4'
+  const wide = String.fromCharCode(0x4f60, 0x597d) // two CJK ideographs
+  const svg = paneSvg([[{ col: 0, text: `${wide} x`, fg }]], 12, 1)
+  // The pair spans four cells from the padding cell; x sits after them and one blank.
+  expect(svg).toContain(`<text x="24" y="49.5" textLength="96" lengthAdjust="spacingAndGlyphs" fill="${fg}">${wide}</text>`)
+  expect(svg).toContain('<text x="144" y="49.5" fill="#d4d4d4">x</text>')
+  // A wide character that would cross the far padding is left out whole.
+  expect(paneSvg([[{ col: 0, text: `abcdefghi${wide}`, fg }]], 12, 1)).not.toContain(wide.charAt(0))
+  // The next segment starts after the wide pair's four cells.
+  const runs = segRuns(themeFor('mars'), [{ text: wide, tone: 'body' }, { text: 'y', tone: 'dim' }])
+  expect(runs.map(r => r.col)).toEqual([0, 4])
 })

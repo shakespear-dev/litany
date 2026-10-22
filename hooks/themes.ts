@@ -258,3 +258,121 @@ export const THEMES: Record<ThemeName, Theme> = {
 }
 
 export const themeFor = (name: ThemeName) => THEMES[name]
+
+// Surfaces with no Raster (desktop, VS Code, mobile) get the pane as one Svg: the same cells on a terminal's dark ground.
+// Such a surface counts the pane's cells in its code font, then draws the Svg scaled to the pane's width, its height following.
+// So a cell has the desktop's code-font shape, 2.4 high to 1 wide, and is drawn twice the size of any surface's own: the Svg is only ever scaled down, to the pane's width, its height following.
+// ponytail: the shape is read off one desktop screenshot (2.17 left a strip of 11%; 2.5 scrolled). A taller cell than the surface's scrolls the pane, a shorter one leaves a strip below: tune CELL_H.
+export const CELL_W = 24
+export const CELL_H = 57
+const FONT_PX = 40
+const TERM_BG = '#141414'
+const TERM_FG = '#d4d4d4'
+// The claude theme's named colours as Claude Code's dark theme paints them. ponytail: fixed dark values, as the ground is always dark.
+const NAMED: Readonly<Record<string, string>> = { claude: '#d77757', success: '#4eba65', warning: '#ffc107', error: '#ff6b80', inactive: '#999999' }
+
+// One stretch of a row in one colour, starting at `col`.
+export type Run = { col: number; text: string; fg: string; bold?: boolean }
+
+const hex = (rgb: number) => (rgb === DEFAULT ? TERM_FG : `#${rgb.toString(16).padStart(6, '0')}`)
+
+export function toneHex(theme: Theme, tone: TextTone) {
+  const c = theme.text[tone]
+  return c === undefined ? TERM_FG : c.startsWith('#') ? c : (NAMED[c] ?? TERM_FG)
+}
+
+// A Raster's packed cells as runs, row by row. A blank joins the run it sits in, so the rain's gaps cost nothing. ponytail: backgrounds are dropped; this mod paints none.
+export function cellRuns(cells: string, cols: number, rows: number): Run[][] {
+  const w = new Uint32Array(Uint8Array.fromBase64(cells).buffer)
+  return Array.from({ length: rows }, (_, r) => {
+    const runs: Run[] = []
+    let run: Run | undefined
+    for (let c = 0; c < cols; c++) {
+      const i = (r * cols + c) * 3
+      const ch = String.fromCharCode(w[i] ?? 32)
+      const fg = hex(w[i + 1] ?? DEFAULT)
+      if (ch === ' ') {
+        if (run) run.text += ch
+        continue
+      }
+      if (run?.fg !== fg) {
+        run = { col: c, text: '', fg }
+        runs.push(run)
+      }
+      run.text += ch
+    }
+    return runs
+  })
+}
+
+// East Asian wide and fullwidth BMP characters take two terminal cells, as a surrogate pair's two units do (an emoji); every other character one. ponytail: the common wide blocks, not the full Unicode width table.
+const WIDE = /[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꀀ-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/
+const cellsOf = (ch: string) => (WIDE.test(ch) ? 2 : ch.length)
+const widthOf = (s: string) => [...s].reduce((n, ch) => n + cellsOf(ch), 0)
+
+// A text row's segments as runs, side by side from column 0.
+export function segRuns(theme: Theme, segs: readonly { text: string; tone: TextTone; bold?: boolean }[]): Run[] {
+  let col = 0
+  return segs.map(s => {
+    const run: Run = { col, text: s.text, fg: toneHex(theme, s.tone), ...(s.bold ? { bold: true } : {}) }
+    col += widthOf(s.text)
+    return run
+  })
+}
+
+// A run's words, each at the cell it starts in and the cells it spans, cut where the next character would cross `inner`. Characters are walked whole, so a cut never splits a pair; one XML forbids is a blank.
+function words(run: Run, inner: number) {
+  const out: { col: number; text: string; span: number }[] = []
+  let col = run.col
+  for (const ch of run.text.replace(XML_BAD, ' ')) {
+    const w = cellsOf(ch)
+    if (col + w > inner) break
+    const last = out.at(-1)
+    if (/\s/.test(ch)) {
+      // A blank only advances the column.
+    } else if (last && last.col + last.span === col) {
+      last.text += ch
+      last.span += w
+    } else out.push({ col, text: ch, span: w })
+    col += w
+  }
+  return out
+}
+
+// What XML forbids would make the whole SVG invalid: control characters, U+FFFE and U+FFFF, and a surrogate left alone (a Bash command's broken emoji).
+// The two noncharacters by code: as literals they are invisible, and some tools rewrite \u escapes into literals.
+const XML_BAD = new RegExp(`[\\x00-\\x1f\\x7f${String.fromCharCode(0xfffe, 0xffff)}]|[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?<![\\ud800-\\udbff])[\\udc00-\\udfff]`, 'g')
+const esc = (s: string) =>
+  s
+    .replace(XML_BAD, ' ')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+// An Svg's source is refused past 131072 characters, and the engine then closes the pane.
+const SVG_MAX = 131_072
+
+// The pane at `cols × rows` cells: each row's runs one cell in (the terminal's paddingX), cut at the far padding. Every word is placed at its own cell and stretched to its cells, so neither a renderer's whitespace rules nor a fallback font moves the grid. Columns count terminal cells: two for a wide character or an emoji.
+export function paneSvg(lines: readonly (readonly Run[])[], cols: number, rows: number): string {
+  const inner = Math.max(1, cols - 2)
+  const w = cols * CELL_W
+  const h = rows * CELL_H
+  const head = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="${FONT_PX}"><rect width="100%" height="100%" fill="${TERM_BG}"/>`
+  const tail = '</svg>'
+  let size = head.length + tail.length
+  const texts: string[] = []
+  // ponytail: past the budget the lowest rows go undrawn; only a pane far wider and taller than a desktop's reaches it.
+  rows: for (const [r, runs] of lines.slice(0, rows).entries())
+    for (const run of runs) {
+      const bold = run.bold ? ' font-weight="bold"' : ''
+      for (const word of words(run, inner)) {
+        // One narrow glyph needs no stretching: its x already pins it to its cell.
+        const fit = word.span > 1 ? ` textLength="${word.span * CELL_W}" lengthAdjust="spacingAndGlyphs"` : ''
+        const text = `<text x="${(word.col + 1) * CELL_W}" y="${r * CELL_H + (CELL_H + FONT_PX) / 2 + 1}"${fit} fill="${run.fg}"${bold}>${esc(word.text)}</text>`
+        if (size + text.length > SVG_MAX) break rows
+        size += text.length
+        texts.push(text)
+      }
+    }
+  return head + texts.join('') + tail
+}

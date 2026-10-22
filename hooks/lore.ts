@@ -188,7 +188,8 @@ export function resolveTheme(defaults: Defaults, override: string | null): Theme
 
 export const pushLog = <T>(log: readonly T[], entry: T, max: number): T[] => [...log, entry].slice(-max)
 
-export const basename = (path: string) => path.slice(path.lastIndexOf('/') + 1)
+// A backslash separates only in a Windows path (a drive, a UNC share or a rooted path), with either slash after the drive; elsewhere it is a legal character of a name.
+export const basename = (path: string) => path.slice(Math.max(path.lastIndexOf('/'), /^([A-Za-z]:|\\)/.test(path) ? path.lastIndexOf('\\') : -1) + 1)
 
 export type SpinnerMode = 'requesting' | 'responding' | 'thinking' | 'tool-input' | 'tool-use'
 

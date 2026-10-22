@@ -6,7 +6,7 @@ import type { Defaults } from './lore'
 import { anyOn, type Command, SAY_MAX, applyCommand, hasWords, BAND_HEAD, bandSegments, basename, fitBand, heresyText, ignitionText, isOn, lawText, matchHeresy, parseCommand, PAUSE_MS, pickLine, pushLog, resolveTheme, resolveVolumes, resolveVox, volumeGain, volumesText, voxSetting, SEP, spinnerWord, statusText, toolPhrase, turnLine, VOICE, withUsage } from './lore'
 import { ranRite, spawned, turnEnded, turnStarted } from './servitors'
 import { addPulse, LOG_MAX, minuteOf, pulseWindow, ROSTER_HEAD, slate, spiritName, splitWindow } from './slate'
-import { BOOT_TICKS, heroCells, pulseCells, themeFor, type TextTone, type Theme } from './themes'
+import { BOOT_TICKS, cellRuns, heroCells, paneSvg, pulseCells, segRuns, themeFor, type TextTone, type Theme } from './themes'
 import { scaleWav } from './vox/dsp'
 import { speak, type VoiceName } from './vox/voices'
 
@@ -47,16 +47,31 @@ async function currentVoice($: EngineInterface, options: Defaults) {
 
 // The clip players a Linux desktop may have, PipeWire's first.
 const PLAYERS: readonly (readonly string[])[] = [['pw-play'], ['paplay'], ['aplay', '-q'], ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet']]
-// $.audio.play sounds through afplay on macOS alone, and elsewhere plays nothing. Undefined until the first sound; 'engine' on macOS and wherever uname cannot run; else the players still in the running, narrowed to the first that played.
-let players: readonly (readonly string[])[] | 'engine' | undefined
+// $.audio.play sounds through afplay on macOS alone, and elsewhere plays nothing. Undefined until the first sound; 'windows' on Windows; 'engine' on macOS and wherever uname cannot run; else the players still in the running, narrowed to the first that played.
+let players: readonly (readonly string[])[] | 'engine' | 'windows' | undefined
 
-// 'engine' on macOS; on Linux the player tried first (the one that played, once one has), or null when none played.
-async function player($: EngineInterface): Promise<'engine' | readonly string[] | null> {
+// 'engine' on macOS; 'windows' on Windows; on Linux the player tried first (the one that played, once one has), or null when none played.
+async function player($: EngineInterface): Promise<'engine' | 'windows' | readonly string[] | null> {
+  // Windows is asked first: Git Bash may put a uname on its PATH.
+  if (players === undefined && (await $.env.get('OS').catch(() => undefined)) === 'Windows_NT') players ??= 'windows'
   if (players === undefined) {
     const os = await $.process.run(['uname', '-s'], { timeoutMs: 2000 }).catch(() => null)
     players ??= os?.exitCode === 0 && os.stdout.trim() !== 'Darwin' ? PLAYERS : 'engine'
   }
-  return players === 'engine' ? players : (players[0] ?? null)
+  return typeof players === 'string' ? players : (players[0] ?? null)
+}
+
+// Windows: the WAV's bytes reach PowerShell's SoundPlayer on stdin, so no file is written. ponytail: PowerShell starts in a few hundred ms, so a clip lags that much.
+const PLAY_STDIN = '[System.Media.SoundPlayer]::new([IO.MemoryStream]::new([Convert]::FromBase64String([Console]::In.ReadToEnd()))).PlaySync()'
+
+// By its full path: Windows looks for a bare name in the working directory first, the project's, where a planted powershell.exe would run.
+async function powershell($: EngineInterface) {
+  const root = await $.env.get('SystemRoot').catch(() => undefined)
+  return `${root !== undefined && /^[A-Za-z]:\\[^"<>|?*]*$/.test(root) ? root.replace(/\\+$/, '') : 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+}
+
+async function playWindows($: EngineInterface, wav: Uint8Array, timeoutMs = 10_000) {
+  await $.process.run([await powershell($), '-NoProfile', '-NonInteractive', '-Command', PLAY_STDIN], { stdin: wav.toBase64(), timeoutMs }).catch(() => {})
 }
 
 // A player that fails sooner than this never started playing; one that ran longer was playing when it ended.
@@ -64,7 +79,7 @@ const PROMPT_MS = 2_000
 
 // Linux: the first player that plays the file keeps the job; a chosen one that fails once is kept. A run killed at `timeoutMs` (or ended later by a signal) ends this file: no other player replays it, and none is blamed.
 async function playWavFile($: EngineInterface, path: string, timeoutMs = 10_000) {
-  if ((await player($)) === null || players === 'engine' || players === undefined) return
+  if ((await player($)) === null || typeof players === 'string' || players === undefined) return
   for (const argv of players) {
     const startedAt = await $.clock.now().catch(() => 0)
     const r = await $.process.run([...argv, path], { timeoutMs }).catch(() => null)
@@ -134,7 +149,7 @@ async function playBytes($: EngineInterface, wav: Uint8Array, timeoutMs?: number
   }
 }
 
-// A clip below full volume on Linux, by clip and gain: each costs one read a session. A failure is not kept.
+// A clip's bytes at a gain (below full volume on Linux, any on Windows), by clip and gain: each costs one read a session. A failure is not kept.
 const scaledClips = new Map<string, Promise<Uint8Array | null>>()
 
 async function readScaled($: EngineInterface, file: string, gain: number) {
@@ -148,7 +163,7 @@ async function playClipAt($: EngineInterface, clip: SoundEvent, gain: number) {
   if (p === 'engine') return $.audio.play({ asset }, { gain })
   if (p === null) return
   const file = `${$.plugin.root}/${asset}`
-  if (gain === 1) return playWavFile($, file)
+  if (p !== 'windows' && gain === 1) return playWavFile($, file)
   const key = `${clip}@${gain}`
   const scaled = scaledClips.get(key) ?? readScaled($, file, gain).catch(() => null)
   scaledClips.set(key, scaled)
@@ -158,7 +173,7 @@ async function playClipAt($: EngineInterface, clip: SoundEvent, gain: number) {
     if (scaledClips.get(key) === scaled) scaledClips.delete(key)
     return
   }
-  return playBytes($, wav)
+  return p === 'windows' ? playWindows($, wav) : playBytes($, wav)
 }
 
 // What `played` does within `ms`: a hung player frees whoever waits on it.
@@ -176,8 +191,8 @@ async function sayLine($: EngineInterface, voice: VoiceName, text: string, gain:
   const p = await player($)
   if (p === null) return
   const { wav, durationMs } = speak(voice, text, Math.floor(Math.random() * 2 ** 32), gain)
-  // A Linux player may run the line's length and 3 s more before it is killed.
-  const played = p === 'engine' ? $.audio.play({ base64: wav.toBase64(), mime: 'audio/wav' }) : playBytes($, wav, durationMs + 3_000)
+  // A Linux or Windows player may run the line's length and 3 s more before it is killed.
+  const played = p === 'engine' ? $.audio.play({ base64: wav.toBase64(), mime: 'audio/wav' }) : p === 'windows' ? playWindows($, wav, durationMs + 3_000) : playBytes($, wav, durationMs + 3_000)
   await within($, played, durationMs + 2_000)
 }
 
@@ -245,7 +260,7 @@ async function sound($: EngineInterface, options: Defaults, event: SoundEvent) {
 
 // Linux only: line folders a killed session left, ours by uid and a day old, directly in the runtime or temp folder.
 async function sweepVoxDirs($: EngineInterface) {
-  if ((await player($)) === 'engine') return
+  if (typeof (await player($)) === 'string') return
   const id = await $.process.run(['id', '-u'], { timeoutMs: 2000 })
   const uid = id.exitCode === 0 ? id.stdout.trim() : ''
   if (!/^\d+$/.test(uid)) return
@@ -311,7 +326,7 @@ async function refreshBranch($: EngineInterface) {
 }
 
 // The pulse at the drawn width: mirrored while `split` is on and a servitor rite is in view.
-async function pulseArt($: EngineInterface, options: Defaults, theme: Theme) {
+async function pulseArt($: EngineInterface, options: Defaults, theme: Theme, inner: number) {
   const all = await read($, pulse)
   const now = Math.max(all.last, nowMinute)
   if (await enabled($, options, 'split')) {
@@ -328,39 +343,42 @@ let tick = 0
 let openedAt = -BOOT_TICKS
 let isDrawn = false
 let isWorking = false
-// Set from the terminal's viewport while it draws: a pane opened unasked is a sidebar only where this is true.
+// Set from the surface's viewport while it draws: a pane opened unasked is a sidebar only where this is true.
 let isDockable = false
 // The newest minute this module has seen: a tool call or the timer's minute tick. The pulse scrolls to it.
 let nowMinute = 0
-// What the last drawing laid out: the timer blits only rasters the pane shows, at the width it drew them.
-let inner = 0
-let isHeroShown = false
-let isPulseShown = false
-let isRosterShown = false
-// Whether the last pulse drawn was mirrored: when the servitors' minutes scroll out, the head note must follow.
-let isPulseSplit = false
+// What each surface's last drawing of the open pane laid out. The timer animates what any of them shows, and blits only the terminal's rasters, at the width it drew them.
+// isPulseSplit: whether that pulse was mirrored; when the servitors' minutes scroll out, the head note must follow.
+// ponytail: kept until the pane closes, a detached surface's included; it costs a redraw now and then.
+type Shown = { inner: number; isHero: boolean; isPulse: boolean; isRoster: boolean; isPulseSplit: boolean }
+const shown = new Map<string, Shown>()
 
 // ponytail: the timer runs while the pane is open; an unseated or idle tick returns before any $ call.
 async function tickPanel($: EngineInterface, options: Defaults) {
   tick++
   const sinceOpen = tick - openedAt
+  const all = [...shown.values()]
   // A minute is 240 frames at 250 ms; the pulse scrolls on it.
-  const isMinute = isPulseShown && tick % 240 === 0
-  const isHeroFrame = isHeroShown && (isWorking || sinceOpen < BOOT_TICKS || tick % 4 === 0)
+  const isMinute = all.some(s => s.isPulse) && tick % 240 === 0
+  const isHeroFrame = all.some(s => s.isHero) && (isWorking || sinceOpen < BOOT_TICKS || tick % 4 === 0)
   // The roster's times move once a second, and a finished row leaves on time.
-  const isRosterTick = isRosterShown && tick % 4 === 0
+  const isRosterTick = all.some(s => s.isRoster) && tick % 4 === 0
   if (!isDrawn || (!isHeroFrame && !isMinute && !isRosterTick)) return
-  if (isRosterTick) $.ui.invalidate('ui.render')
+  if (isMinute) nowMinute = Math.max(nowMinute, minuteOf(await $.clock.now().catch(() => 0)))
+  // A surface with no Raster (desktop, VS Code, a phone) draws an Svg, which takes no blits: every frame redraws the whole pane (4 a second at most, under a remote surface's 10), the terminal's alongside it.
+  const isSvgPane = [...shown.keys()].some(surface => surface !== 'terminal')
+  if (isRosterTick || isSvgPane) $.ui.invalidate('ui.render')
+  const term = shown.get('terminal')
+  if (isSvgPane || !term) return
   const theme = await currentTheme($, options)
-  if (isHeroFrame) {
-    const r = await $.ui.blit({ requestId: PANE, key: 'art', cells: heroCells(theme, inner, tick, isWorking, sinceOpen) })
+  if (isHeroFrame && term.isHero) {
+    const r = await $.ui.blit({ requestId: PANE, key: 'art', cells: heroCells(theme, term.inner, tick, isWorking, sinceOpen) })
     if (r.deny !== undefined) return void (isDrawn = false)
   }
-  if (isMinute) {
-    nowMinute = Math.max(nowMinute, minuteOf(await $.clock.now().catch(() => 0)))
-    const art = await pulseArt($, options, theme)
+  if (isMinute && term.isPulse) {
+    const art = await pulseArt($, options, theme, term.inner)
     // The graph changed kind: redraw the pane so the head note matches.
-    if (art.isSplit !== isPulseSplit) return void $.ui.invalidate('ui.render')
+    if (art.isSplit !== term.isPulseSplit) return void $.ui.invalidate('ui.render')
     const r = await $.ui.blit({ requestId: PANE, key: 'pulse', cells: art.cells })
     if (r.deny !== undefined) isDrawn = false
   }
@@ -379,6 +397,7 @@ function stopPanel() {
   timer?.cancel()
   timer = null
   isDrawn = false
+  shown.clear()
 }
 
 async function closePanel($: EngineInterface) {
@@ -397,7 +416,7 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await refreshBranch($)
     const repo = await $.session.repo().catch(() => null)
-    const forge = repo ? (repo.name ?? repo.root.split('/').pop()) : undefined
+    const forge = repo ? (repo.name ?? basename(repo.root)) : undefined
     await update($, telemetry, t => ({ ...t, forge }))
     // $.state outlives a hot reload, so the litany is said once per session. Terminal sessions only: a -p or SDK host's stream would carry the notice as a transcript row.
     if (e.isInteractive && e.surface === 'terminal' && anyOn(options, await read($, overrides), await currentVoice($, options)) && !(await read($, ignited))) {
@@ -407,12 +426,19 @@ export const register: Register = (on, options) => {
     }
     // Line folders a killed session left behind: by a person's session only, and never holding up the start.
     if (e.isInteractive) void sweepVoxDirs($).catch(() => {})
-    // A reload: reopen a pane that was open (its timer died with the old module), or close it if panel went off in /config.
+    // A reload: reopen a pane that was open (its timer died with the old module), or close it if panel went off in /config. Wherever a surface is attached (a desktop session starts non-interactive); one that attaches later reopens it through session.attach, and a -p run never does.
     if ((await read($, panelOpen)) === true) {
       if (!(await enabled($, options, 'panel'))) await closePanel($)
-      else if (e.isInteractive && e.surface === 'terminal') await openPanel($, options)
+      else if (e.isInteractive || (await $.session.surfaces().catch(() => [])).length > 0) await openPanel($, options)
     }
     return started
+  })
+
+  // The desktop app (or a phone) joining: a pane left open in this session opens there again.
+  on('session.attach', async ($, e, next) => {
+    const attached = await next(e)
+    if (timer === null && (await read($, panelOpen)) === true && (await enabled($, options, 'panel'))) await openPanel($, options)
+    return attached
   })
 
   on('command.run', { command: 'litany' }, async ($, e) => {
@@ -534,8 +560,8 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.surface === 'terminal' && e.viewport?.isFullscreen !== undefined) isDockable = e.viewport.isFullscreen
-    if (e.surface !== 'terminal' || e.props.hasSurvey || !(await enabled($, options, 'band'))) return next(e)
+    if (e.viewport?.isFullscreen !== undefined) isDockable = e.viewport.isFullscreen
+    if (e.props.hasSurvey || !(await enabled($, options, 'band'))) return next(e)
     const segments = fitBand(bandSegments(await read($, telemetry)), e.props.bodyColumns)
     const theme = await currentTheme($, options)
     const line = await read($, heresyLine)
@@ -555,8 +581,9 @@ export const register: Register = (on, options) => {
 
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
-    // Chat at a terminal only: -p output, SDK hosts and teammates may be parsed by something else.
-    const isChat = e.surfaces.includes('terminal') && !e.traits.some(t => t === 'print' || t === 'sdk-preset' || t === 'bare' || t === 'teammate')
+    // Chat a person reads, at a terminal or in the desktop app (an SDK host itself): other -p output, SDK hosts and teammates may be parsed by something else.
+    const isHosted = e.surfaces.includes('desktop') || (e.surfaces.includes('terminal') && !e.traits.some(t => t === 'print' || t === 'sdk-preset'))
+    const isChat = isHosted && !e.traits.some(t => t === 'bare' || t === 'teammate')
     if (!isChat || !(await enabled($, options, 'voice'))) return composed
     return { sections: [...composed.sections, { id: 'litany-voice', text: VOICE, scope: 'session' }] }
   })
@@ -608,14 +635,13 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    if (e.surface !== 'terminal' || !(await enabled($, options, 'panel'))) return next(e)
+    if (!(await enabled($, options, 'panel'))) return next(e)
     isDrawn = true
     const theme = await currentTheme($, options)
     const cols = e.props.bodyColumns
     const rows = e.props.scroll.bodyRows
-    inner = Math.max(1, cols - 2)
-    const art = await pulseArt($, options, theme)
-    isPulseSplit = art.isSplit
+    const inner = Math.max(1, cols - 2)
+    const art = await pulseArt($, options, theme, inner)
     const layout = slate(
       {
         telemetry: await read($, telemetry),
@@ -637,9 +663,21 @@ export const register: Register = (on, options) => {
       cols,
       rows,
     )
-    isHeroShown = layout.some(r => r.kind === 'art')
-    isPulseShown = layout.some(r => r.kind === 'pulse')
-    isRosterShown = layout.some(r => r.kind === 'text' && r.segs[0]?.text === ROSTER_HEAD)
+    shown.set(e.surface, {
+      inner,
+      isHero: layout.some(r => r.kind === 'art'),
+      isPulse: layout.some(r => r.kind === 'pulse'),
+      isRoster: layout.some(r => r.kind === 'text' && r.segs[0]?.text === ROSTER_HEAD),
+      isPulseSplit: art.isSplit,
+    })
+    if (e.surface !== 'terminal') {
+      // The same rows as the terminal's, as one terminal-looking Svg.
+      const lines = layout.flatMap(r =>
+        r.kind === 'art' ? cellRuns(heroCells(theme, inner, tick, isWorking, tick - openedAt), inner, r.rows) : r.kind === 'pulse' ? cellRuns(art.cells, inner, r.rows) : [segRuns(theme, r.segs)],
+      )
+      const { Svg } = $.ui.resolve(e)
+      return <Svg source={paneSvg(lines, cols, rows)} alt="NOOSPHERE: the Litany telemetry panel" />
+    }
     const color = (tone: TextTone) => (theme.text[tone] ? { color: theme.text[tone] } : {})
     const { Box, Text, Raster } = $.ui.resolve(e)
     return (
